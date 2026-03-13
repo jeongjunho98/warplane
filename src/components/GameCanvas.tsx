@@ -9,39 +9,75 @@ const BOSS_SCORE_THRESHOLD = 5000;
 
 class SoundManager {
   private ctx: AudioContext | null = null;
-  private _bgmInterval: any = null;
-  private bgmGain: GainNode | null = null;
+  private masterGain: GainNode | null = null;
+  private bgmInterval: any = null;
 
-  init() { if (!this.ctx) this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); }
-  private playTone(f: number, t: OscillatorType, d: number, v: number) {
-    if (!this.ctx) return;
-    const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
-    o.type = t; o.frequency.setValueAtTime(f, this.ctx.currentTime);
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.connect(this.ctx.destination);
+  }
+
+  private playTone(f: number, t: OscillatorType, d: number, v: number, slide: boolean = false) {
+    if (!this.ctx || !this.masterGain) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = t;
+    o.frequency.setValueAtTime(f, this.ctx.currentTime);
+    if (slide) o.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + d);
     g.gain.setValueAtTime(v, this.ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + d);
-    o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + d);
+    o.connect(g); g.connect(this.masterGain);
+    o.start(); o.stop(this.ctx.currentTime + d);
   }
-  playShoot() { this.playTone(800, 'square', 0.1, 0.03); }
-  playExplosion() { this.playTone(100, 'sawtooth', 0.3, 0.1); }
-  playPowerUp() { this.playTone(880, 'sine', 0.2, 0.1); }
-  playHurt() { this.playTone(150, 'triangle', 0.2, 0.1); }
+
+  playShoot() { this.playTone(600, 'square', 0.1, 0.05); }
+  playExplosion() { this.playTone(100, 'sawtooth', 0.4, 0.15, true); }
+  playPowerUp() { 
+    this.playTone(440, 'sine', 0.1, 0.1);
+    setTimeout(() => this.playTone(880, 'sine', 0.2, 0.1), 100);
+  }
+  playHurt() { this.playTone(200, 'triangle', 0.3, 0.2); }
+
   startBGM() {
-    if (!this.ctx || this._bgmInterval) return;
-    this.bgmGain = this.ctx.createGain(); this.bgmGain.gain.setValueAtTime(0.05, this.ctx.currentTime);
-    this.bgmGain.connect(this.ctx.destination);
-    const playLoop = () => {
-      if (!this.ctx || !this.bgmGain) return;
-      const now = this.ctx.currentTime; const notes = [110, 123, 130, 146];
-      notes.forEach((f, i) => {
-        const o = this.ctx!.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(f, now + i * 0.25);
-        const g = this.ctx!.createGain(); g.gain.setValueAtTime(0.05, now + i * 0.25);
-        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.25 + 0.2);
-        o.connect(g); g.connect(this.bgmGain!); o.start(now + i * 0.25); o.stop(now + i * 0.25 + 0.2);
-      });
+    if (!this.ctx || this.bgmInterval) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    
+    let step = 0;
+    const playStep = () => {
+      if (!this.ctx || !this.masterGain) return;
+      const now = this.ctx.currentTime;
+      const bassNotes = [55, 55, 65, 41, 55, 55, 82, 73]; // High energy bass
+      const freq = bassNotes[step % bassNotes.length];
+      
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(freq, now);
+      g.gain.setValueAtTime(0.04, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      o.connect(g); g.connect(this.masterGain);
+      o.start(now); o.stop(now + 0.2);
+      
+      if (step % 4 === 0) { // Snare-ish sound
+        const no = this.ctx.createOscillator();
+        const ng = this.ctx.createGain();
+        no.type = 'triangle';
+        no.frequency.setValueAtTime(100, now);
+        ng.gain.setValueAtTime(0.03, now);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        no.connect(ng); ng.connect(this.masterGain);
+        no.start(now); no.stop(now + 0.1);
+      }
+      step++;
     };
-    playLoop(); this._bgmInterval = setInterval(playLoop, 1000);
+    this.bgmInterval = setInterval(playStep, 150);
   }
-  stopBGM() { if (this._bgmInterval) { clearInterval(this._bgmInterval); this._bgmInterval = null; } }
+
+  stopBGM() {
+    if (this.bgmInterval) { clearInterval(this.bgmInterval); this.bgmInterval = null; }
+  }
 }
 const sounds = new SoundManager();
 
@@ -49,6 +85,7 @@ const GameCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState<GameState>('START');
+  
   const scoreRef = useRef(0);
   const gameStateRef = useRef<GameState>('START');
   const playerRef = useRef<Player & { flicker: number }>({ x: 220, y: 540, width: 40, height: 40, speed: 5, hp: 100, maxHp: 100, power: 1, bombs: 3, flicker: 0 });
@@ -66,13 +103,20 @@ const GameCanvas: React.FC = () => {
   const shakeRef = useRef(0);
   const bossSpawnedRef = useRef(false);
 
-  const syncState = useCallback(() => { setScore(scoreRef.current); setGameState(gameStateRef.current); }, []);
+  const syncState = useCallback(() => {
+    setScore(scoreRef.current);
+    setGameState(gameStateRef.current);
+  }, []);
+
   const resetGame = useCallback(() => {
-    sounds.init(); sounds.stopBGM(); sounds.startBGM();
+    sounds.init();
+    sounds.stopBGM();
+    sounds.startBGM();
     scoreRef.current = 0; gameStateRef.current = 'PLAYING'; bossSpawnedRef.current = false;
     playerRef.current = { x: 220, y: 540, width: 40, height: 40, speed: 5, hp: 100, maxHp: 100, power: 1, bombs: 3, flicker: 0 };
     bulletsRef.current = []; enemiesRef.current = []; bossRef.current = null; itemsRef.current = [];
-    particlesRef.current = []; shockwavesRef.current = []; shakeRef.current = 0; syncState();
+    particlesRef.current = []; shockwavesRef.current = []; shakeRef.current = 0;
+    syncState();
   }, [syncState]);
 
   useEffect(() => {
@@ -95,6 +139,7 @@ const GameCanvas: React.FC = () => {
     const canvas = canvasRef.current; const ctx = canvas?.getContext('2d'); if (!canvas || !ctx) return;
     starsRef.current = Array.from({length: 80}, () => ({ x: Math.random()*480, y: Math.random()*640, s: Math.random()*2+1 }));
     let frameId: number;
+    
     const update = (t: number) => {
       const dt = lastFrameTimeRef.current ? Math.min(2, (t - lastFrameTimeRef.current) / 16.67) : 1;
       lastFrameTimeRef.current = t;
@@ -102,11 +147,13 @@ const GameCanvas: React.FC = () => {
       if (gameStateRef.current !== 'PLAYING') return;
       const p = playerRef.current;
       if (p.hp <= 0) { gameStateRef.current = 'GAMEOVER'; sounds.stopBGM(); syncState(); return; }
+      
       if (keysRef.current['ArrowUp'] || keysRef.current['KeyW']) p.y -= p.speed * dt;
       if (keysRef.current['ArrowDown'] || keysRef.current['KeyS']) p.y += p.speed * dt;
       if (keysRef.current['ArrowLeft'] || keysRef.current['KeyA']) p.x -= p.speed * dt;
       if (keysRef.current['ArrowRight'] || keysRef.current['KeyD']) p.x += p.speed * dt;
       p.x = Math.max(0, Math.min(440, p.x)); p.y = Math.max(0, Math.min(600, p.y));
+      
       if (t - lastShotTimeRef.current > 120) {
         sounds.playShoot(); const px = p.x + 20;
         bulletsRef.current.push({ x: px-4, y: p.y, width: 8, height: 20, speed: 14, damage: 10, isPlayerBullet: true });
@@ -164,17 +211,20 @@ const GameCanvas: React.FC = () => {
       particlesRef.current = particlesRef.current.filter(pa => { pa.x += pa.vx*dt; pa.y += pa.vy*dt; pa.life -= 0.02*dt; return pa.life > 0; });
       shockwavesRef.current = shockwavesRef.current.filter(sh => { sh.radius += 5*dt; sh.alpha -= 0.02*dt; return sh.alpha > 0; });
       if (shakeRef.current > 0) shakeRef.current *= 0.9;
-      if (Math.floor(t) % 10 === 0) syncState();
+      if (Math.floor(t) % 15 === 0) syncState();
     };
+
     const draw = () => {
       ctx.save(); if (shakeRef.current > 0.5) ctx.translate((Math.random()-0.5)*shakeRef.current, (Math.random()-0.5)*shakeRef.current);
       ctx.fillStyle = '#000b1e'; ctx.fillRect(0, 0, 480, 640);
       ctx.fillStyle = '#fff'; starsRef.current.forEach(s => ctx.fillRect(s.x, s.y, 1, 1));
+      
       if (gameStateRef.current === 'START') {
         ctx.textAlign = 'center'; ctx.fillStyle = '#0ff'; ctx.font = 'bold 40px Arial'; ctx.fillText('WARPLANE 1945', 240, 250);
         ctx.fillStyle = '#fff'; ctx.font = '20px Arial'; ctx.fillText('PRESS SPACE TO START', 240, 400);
         ctx.restore(); return;
       }
+
       bulletsRef.current.forEach(b => { ctx.fillStyle = b.isPlayerBullet ? '#0ff' : '#f44'; ctx.fillRect(b.x, b.y, b.width, b.height); });
       enemiesRef.current.forEach(e => {
         ctx.save(); ctx.translate(e.x+20, e.y+20); if (e.flicker > 0) ctx.filter = 'brightness(300%)';
@@ -184,25 +234,34 @@ const GameCanvas: React.FC = () => {
         const b = bossRef.current; ctx.save(); ctx.translate(b.x+60, b.y+40); if (b.flicker > 0) ctx.filter = 'brightness(200%)';
         ctx.fillStyle = '#212529'; ctx.beginPath(); ctx.moveTo(0,-40); ctx.lineTo(60,-20); ctx.lineTo(45,30); ctx.lineTo(0,40); ctx.lineTo(-45,30); ctx.lineTo(-60,-20); ctx.fill(); ctx.restore();
       }
+      
       const p = playerRef.current;
-      if (p.hp > 0 && (p.flicker <= 0 || Math.floor(Date.now()/50)%2 === 0)) {
-        ctx.save(); ctx.translate(p.x+20, p.y+20); ctx.fillStyle = '#f50'; ctx.beginPath(); ctx.moveTo(-5, 15); ctx.lineTo(5, 15); ctx.lineTo(0, 25); ctx.fill();
+      if (p.hp > 0) {
+        ctx.save(); ctx.translate(p.x+20, p.y+20);
+        if (p.flicker > 0) {
+          ctx.filter = 'brightness(300%)'; // NO DISAPPEARING, JUST GLOW
+          p.flicker--;
+        }
+        ctx.fillStyle = '#f50'; ctx.beginPath(); ctx.moveTo(-5, 15); ctx.lineTo(5, 15); ctx.lineTo(0, 25); ctx.fill();
         ctx.fillStyle = '#023e8a'; ctx.beginPath(); ctx.moveTo(0,-15); ctx.lineTo(20,10); ctx.lineTo(15,15); ctx.lineTo(0,5); ctx.lineTo(-15,15); ctx.lineTo(-20,10); ctx.fill();
-        ctx.fillStyle = '#e0e1dd'; ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(8,0); ctx.lineTo(5,15); ctx.lineTo(-5,15); ctx.lineTo(-8,0); ctx.fill(); ctx.restore();
+        ctx.fillStyle = '#e0e1dd'; ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(8,0); ctx.lineTo(5,15); ctx.lineTo(-5,15); ctx.lineTo(-8,0); ctx.fill();
+        ctx.restore();
       }
+      
       particlesRef.current.forEach(pa => { ctx.globalAlpha = pa.life; ctx.fillStyle = pa.color; ctx.beginPath(); ctx.arc(pa.x, pa.y, pa.width, 0, Math.PI*2); ctx.fill(); });
       shockwavesRef.current.forEach(sh => { ctx.globalAlpha = sh.alpha; ctx.strokeStyle = sh.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(sh.x, sh.y, sh.radius, 0, Math.PI*2); ctx.stroke(); });
       ctx.globalAlpha = 1; ctx.restore();
       ctx.fillStyle = '#fff'; ctx.font = '18px Arial'; ctx.fillText(`SCORE: ${scoreRef.current}`, 10, 25);
-      ctx.fillText(`HP: ${Math.ceil(p.hp)}`, 10, 50);
+      ctx.fillText(`HP: ${Math.max(0, Math.ceil(p.hp))}`, 10, 50);
       if (gameStateRef.current !== 'PLAYING') {
         ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,480,640); ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
         ctx.font = 'bold 40px Arial'; ctx.fillText(gameStateRef.current === 'WON' ? 'WON!' : 'GAME OVER', 240, 300);
         ctx.font = '20px Arial'; ctx.fillText('PRESS SPACE TO RESTART', 240, 400);
       }
     };
+    
     const loop = (t: number) => { update(t); draw(); frameId = requestAnimationFrame(loop); };
-    frameId = requestAnimationFrame(loop); return () => cancelAnimationFrame(frameId);
+    frameId = requestAnimationFrame(loop); return () => { cancelAnimationFrame(frameId); sounds.stopBGM(); };
   }, [syncState, resetGame]);
 
   return (
