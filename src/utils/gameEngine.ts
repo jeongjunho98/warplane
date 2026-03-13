@@ -22,31 +22,23 @@ export const updatePosition = (
 };
 
 /**
- * 정밀 충돌 판정 (여백 적용)
+ * 정밀 충돌 판정 (AABB)
+ * margin이 클수록 히트박스가 작아짐 (판정이 엄격해짐)
+ * margin이 0이면 이미지 전체, 음수면 이미지보다 넓은 판정
  */
-export const checkCollision = (rect1: GameObject, rect2: GameObject, margin: number = 0): boolean => {
+export const checkCollision = (obj1: GameObject, obj2: GameObject, margin: number = 0): boolean => {
   return (
-    rect1.x + margin < rect2.x + rect2.width - margin &&
-    rect1.x + rect1.width - margin > rect2.x + margin &&
-    rect1.y + margin < rect2.y + rect2.height - margin &&
-    rect1.y + rect1.height - margin > rect2.y + margin
+    obj1.x + margin < obj2.x + obj2.width - margin &&
+    obj1.x + obj1.width - margin > obj2.x + margin &&
+    obj1.y + margin < obj2.y + obj2.height - margin &&
+    obj1.y + obj1.height - margin > obj2.y + margin
   );
 };
 
-/**
- * 아이템 획득 효과 처리
- */
 export const applyItemEffect = (player: Player, itemType: Item['type']): Player => {
   const newPlayer = { ...player };
   if (itemType === 'power') newPlayer.power = Math.min(newPlayer.power + 1, 3);
   if (itemType === 'health') newPlayer.hp = Math.min(newPlayer.hp + 25, newPlayer.maxHp);
   if (itemType === 'bomb') newPlayer.bombs++;
   return newPlayer;
-};
-
-/**
- * 보스 등장 조건 확인 (5000점 기준)
- */
-export const shouldSpawnBoss = (score: number, isBossActive: boolean, gameWon: boolean): boolean => {
-  return score >= 5000 && !isBossActive && !gameWon;
 };
