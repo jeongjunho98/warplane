@@ -58,7 +58,7 @@ const GameCanvas: React.FC = () => {
   const itemsRef = useRef<Item[]>([]);
   const starsRef = useRef<{x:number, y:number, s:number}[]>([]);
   const particlesRef = useRef<Particle[]>([]);
-  const shockwavesRef = useRef<{x:number, y:number, radius:number, alpha:number}[]>([]);
+  const shockwavesRef = useRef<{x:number, y:number, radius:number, alpha:number, color:string}[]>([]);
   const lastShotTimeRef = useRef(0);
   const lastSpawnTimeRef = useRef(0);
   const lastFrameTimeRef = useRef(0);
