@@ -48,7 +48,7 @@ class SoundManager {
     const playStep = () => {
       if (!this.ctx || !this.masterGain) return;
       const now = this.ctx.currentTime;
-      const bassNotes = [55, 55, 65, 41, 55, 55, 82, 73]; // High energy bass
+      const bassNotes = [55, 55, 65, 41, 55, 55, 82, 73]; 
       const freq = bassNotes[step % bassNotes.length];
       
       const o = this.ctx.createOscillator();
@@ -60,7 +60,7 @@ class SoundManager {
       o.connect(g); g.connect(this.masterGain);
       o.start(now); o.stop(now + 0.2);
       
-      if (step % 4 === 0) { // Snare-ish sound
+      if (step % 4 === 0) {
         const no = this.ctx.createOscillator();
         const ng = this.ctx.createGain();
         no.type = 'triangle';
@@ -148,6 +148,8 @@ const GameCanvas: React.FC = () => {
       const p = playerRef.current;
       if (p.hp <= 0) { gameStateRef.current = 'GAMEOVER'; sounds.stopBGM(); syncState(); return; }
       
+      if (p.flicker > 0) p.flicker--; // DECREMENT IN UPDATE
+
       if (keysRef.current['ArrowUp'] || keysRef.current['KeyW']) p.y -= p.speed * dt;
       if (keysRef.current['ArrowDown'] || keysRef.current['KeyS']) p.y += p.speed * dt;
       if (keysRef.current['ArrowLeft'] || keysRef.current['KeyA']) p.x -= p.speed * dt;
@@ -171,7 +173,7 @@ const GameCanvas: React.FC = () => {
       bulletsRef.current = bulletsRef.current.filter(b => {
         if (b.isPlayerBullet) b.y -= b.speed * dt;
         else { const ang = b.angle ?? Math.PI/2; b.x += Math.cos(ang)*b.speed*dt; b.y += Math.sin(ang)*b.speed*dt; }
-        if (!b.isPlayerBullet && collisionUtil(b, p)) { p.hp -= 5; p.flicker = 10; sounds.playHurt(); return false; }
+        if (!b.isPlayerBullet && collisionUtil(b, p)) { p.hp -= 5; p.flicker = 15; sounds.playHurt(); return false; }
         return b.y > -50 && b.y < 690 && b.x > -50 && b.x < 530;
       });
       enemiesRef.current = enemiesRef.current.filter(e => {
@@ -238,10 +240,7 @@ const GameCanvas: React.FC = () => {
       const p = playerRef.current;
       if (p.hp > 0) {
         ctx.save(); ctx.translate(p.x+20, p.y+20);
-        if (p.flicker > 0) {
-          ctx.filter = 'brightness(300%)'; // NO DISAPPEARING, JUST GLOW
-          p.flicker--;
-        }
+        if (p.flicker > 0) ctx.filter = 'brightness(300%)'; // NO VISIBILITY TOGGLE
         ctx.fillStyle = '#f50'; ctx.beginPath(); ctx.moveTo(-5, 15); ctx.lineTo(5, 15); ctx.lineTo(0, 25); ctx.fill();
         ctx.fillStyle = '#023e8a'; ctx.beginPath(); ctx.moveTo(0,-15); ctx.lineTo(20,10); ctx.lineTo(15,15); ctx.lineTo(0,5); ctx.lineTo(-15,15); ctx.lineTo(-20,10); ctx.fill();
         ctx.fillStyle = '#e0e1dd'; ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(8,0); ctx.lineTo(5,15); ctx.lineTo(-5,15); ctx.lineTo(-8,0); ctx.fill();
