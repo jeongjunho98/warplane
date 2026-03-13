@@ -24,7 +24,7 @@ export const updatePosition = (
 /**
  * 정밀 충돌 판정 (여백 적용)
  */
-export const checkCollision = (rect1: GameObject, rect2: GameObject, margin: number = 5): boolean => {
+export const checkCollision = (rect1: GameObject, rect2: GameObject, margin: number = 0): boolean => {
   return (
     rect1.x + margin < rect2.x + rect2.width - margin &&
     rect1.x + rect1.width - margin > rect2.x + margin &&

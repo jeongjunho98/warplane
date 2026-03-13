@@ -13,8 +13,14 @@ interface Shockwave { x: number; y: number; radius: number; maxRadius: number; c
 const GameCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [score, setScore] = useState(0);
+  const scoreRef = useRef(0);
   const [gameState, setGameState] = useState<GameState>('START');
   const [isBossActive, setIsBossActive] = useState(false);
+
+  // Sync scoreRef with score state for the loop
+  useEffect(() => {
+    scoreRef.current = score;
+  }, [score]);
 
   // Refs for performance & state
   const playerRef = useRef<Player & { flicker: number }>({
@@ -48,6 +54,7 @@ const GameCanvas: React.FC = () => {
 
   const resetGame = useCallback(() => {
     setScore(0);
+    scoreRef.current = 0;
     setIsBossActive(false);
     bossSpawnedRef.current = false;
     playerRef.current = {
@@ -226,7 +233,7 @@ const GameCanvas: React.FC = () => {
       bulletsRef.current = bulletsRef.current.filter(b => {
         b.y += (b.isPlayerBullet ? -b.speed : b.speed) * dt;
         if (b.angle) b.x += b.angle * b.speed * dt;
-        if (!b.isPlayerBullet && player.hp > 0 && collisionUtil(b, player)) {
+        if (!b.isPlayerBullet && player.hp > 0 && collisionUtil(b, player, 2)) {
           player.hp -= 8; player.flicker = 12; shakeRef.current = 5;
           createExplosion(b.x, b.y, 6, '#fff');
           if (player.hp <= 0) { createExplosion(player.x+player.width/2, player.y+player.height/2, 80, '#0ff'); player.flicker = -1; }
@@ -246,7 +253,7 @@ const GameCanvas: React.FC = () => {
           }
         }
         bulletsRef.current.filter(b => b.isPlayerBullet).forEach(b => {
-          if (collisionUtil(b, boss)) {
+          if (collisionUtil(b, boss, 0)) {
             boss.hp -= b.damage; boss.flicker = 3; createExplosion(b.x, b.y, 4, '#fff'); b.y = -100;
             if (boss.hp <= 0) { setScore(prev => prev+10000); createExplosion(boss.x+boss.width/2, boss.y+boss.height/2, 120, '#ff0'); setGameState('WON'); bossRef.current = null; }
           }
@@ -261,14 +268,14 @@ const GameCanvas: React.FC = () => {
           bulletsRef.current.push({ x: e.x+e.width/2-4, y: e.y+e.height, width: 7, height: 7, speed: 4.5, damage: 5, isPlayerBullet: false, angle: Math.atan2(dy, dx)-Math.PI/2 });
           e.lastShotTime = timestamp;
         }
-        if (player.hp > 0 && collisionUtil(player, e)) {
+        if (player.hp > 0 && collisionUtil(player, e, 6)) {
           player.hp -= 20; player.flicker = 18; shakeRef.current = 10;
           createExplosion(e.x+e.width/2, e.y+e.height/2, 20, '#f50');
           if (player.hp <= 0) { createExplosion(player.x+player.width/2, player.y+player.height/2, 80, '#0ff'); player.flicker = -1; }
           return false;
         }
         bulletsRef.current.filter(b => b.isPlayerBullet).forEach(b => {
-          if (collisionUtil(b, e)) {
+          if (collisionUtil(b, e, 0)) {
             e.hp -= b.damage; e.flicker = 3; b.y = -100;
             if (e.hp <= 0) { setScore(prev => prev+100); addFloatingText(e.x, e.y, '+100', '#0ff'); createExplosion(e.x+e.width/2, e.y+e.height/2, 18, '#f50'); if (Math.random() < 0.22) spawnItem(e.x, e.y); e.y = CANVAS_HEIGHT+250; }
           }
@@ -278,7 +285,7 @@ const GameCanvas: React.FC = () => {
 
       itemsRef.current = itemsRef.current.filter(item => {
         item.y += item.speed * dt;
-        if (player.hp > 0 && collisionUtil(player, item)) {
+        if (player.hp > 0 && collisionUtil(player, item, 0)) {
           if (item.type === 'power') { player.power = Math.min(player.power+1, 3); addFloatingText(item.x, item.y, 'POWER UP!', '#f0f'); }
           if (item.type === 'health') { player.hp = Math.min(player.hp+30, player.maxHp); addFloatingText(item.x, item.y, '+30 HP', '#0f0'); }
           if (item.type === 'bomb') { player.bombs++; addFloatingText(item.x, item.y, '+1 BOMB', '#f80'); }
@@ -415,15 +422,6 @@ const GameCanvas: React.FC = () => {
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
   }, [score, gameState, isBossActive]);
-
-  return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#050505', backgroundImage: 'radial-gradient(circle, #111 0%, #000 100%)' }}>
-      <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={{ border: '4px solid #222', borderRadius: '8px', boxShadow: '0 0 60px rgba(0,255,255,0.15)' }} />
-    </div>
-  );
-};
-
-export default GameCanvas;
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#050505', backgroundImage: 'radial-gradient(circle, #111 0%, #000 100%)' }}>
