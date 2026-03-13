@@ -28,6 +28,9 @@ class SoundManager {
 }
 const sounds = new SoundManager();
 
+interface Star { x: number; y: number; size: number; speed: number; color: string; }
+interface Shockwave { x: number; y: number; radius: number; maxRadius: number; color: string; alpha: number; }
+
 const GameCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [score, setScore] = useState(0);
