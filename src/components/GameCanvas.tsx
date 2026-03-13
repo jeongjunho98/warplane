@@ -1,9 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Bullet, Enemy, Item, Particle, FloatingText, GameState } from '../types';
+import { checkCollision as collisionUtil } from '../utils/gameEngine';
 
 const CANVAS_WIDTH = 480;
 const CANVAS_HEIGHT = 640;
 const PLAYER_SIZE = 40;
+const BOSS_SCORE_THRESHOLD = 5000;
 
 interface Star { x: number; y: number; size: number; speed: number; color: string; }
 interface Shockwave { x: number; y: number; radius: number; maxRadius: number; color: string; alpha: number; }
@@ -37,16 +39,45 @@ const GameCanvas: React.FC = () => {
   const shockwavesRef = useRef<Shockwave[]>([]);
   const floatingTextsRef = useRef<FloatingText[]>([]);
   const shakeRef = useRef<number>(0);
+  const bossSpawnedRef = useRef<boolean>(false);
   
   const lastShotTimeRef = useRef<number>(0);
   const lastSpawnTimeRef = useRef<number>(0);
   const lastFrameTimeRef = useRef<number>(0);
   const keysRef = useRef<{ [key: string]: boolean }>({});
 
+  const resetGame = useCallback(() => {
+    setScore(0);
+    setIsBossActive(false);
+    bossSpawnedRef.current = false;
+    playerRef.current = {
+      x: CANVAS_WIDTH / 2 - PLAYER_SIZE / 2,
+      y: CANVAS_HEIGHT - 100,
+      width: PLAYER_SIZE,
+      height: PLAYER_SIZE,
+      speed: 5,
+      hp: 100,
+      maxHp: 100,
+      power: 1,
+      bombs: 3,
+      flicker: 0,
+    };
+    bulletsRef.current = [];
+    enemiesRef.current = [];
+    bossRef.current = null;
+    itemsRef.current = [];
+    particlesRef.current = [];
+    shockwavesRef.current = [];
+    floatingTextsRef.current = [];
+    shakeRef.current = 0;
+    setGameState('PLAYING');
+  }, []);
+
   useEffect(() => {
-    if (score >= 5000 && !isBossActive && gameState === 'PLAYING') {
+    if (score >= BOSS_SCORE_THRESHOLD && !bossSpawnedRef.current && gameState === 'PLAYING') {
+      bossSpawnedRef.current = true;
       setIsBossActive(true);
-      shakeRef.current = 20; // Big shake on boss arrival
+      shakeRef.current = 20;
       bossRef.current = {
         x: CANVAS_WIDTH / 2 - 60,
         y: -150,
@@ -60,7 +91,7 @@ const GameCanvas: React.FC = () => {
         flicker: 0,
       };
     }
-  }, [score, isBossActive, gameState]);
+  }, [score, gameState]);
 
   useEffect(() => {
     const stars: Star[] = [];
@@ -78,11 +109,14 @@ const GameCanvas: React.FC = () => {
       keysRef.current[e.code] = true; 
       if (gameState === 'START' && (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyZ')) {
         setGameState('PLAYING');
+      } else if ((gameState === 'WON' || gameState === 'GAMEOVER') && (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyR')) {
+        resetGame();
       } else if (gameState === 'PLAYING' && e.code === 'Space') {
         useBomb(); 
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => { keysRef.current[e.code] = false; };
+    const handleBlur = () => { Object.keys(keysRef.current).forEach(key => keysRef.current[key] = false); };
     
     const useBomb = () => {
       const player = playerRef.current;
@@ -100,8 +134,13 @@ const GameCanvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [gameState]);
+    window.addEventListener('blur', handleBlur);
+    return () => { 
+      window.removeEventListener('keydown', handleKeyDown); 
+      window.removeEventListener('keyup', handleKeyUp); 
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [gameState, resetGame]);
 
   const addFloatingText = (x: number, y: number, text: string, color: string) => {
     floatingTextsRef.current.push({ x, y, text, life: 1, color });
@@ -187,7 +226,7 @@ const GameCanvas: React.FC = () => {
       bulletsRef.current = bulletsRef.current.filter(b => {
         b.y += (b.isPlayerBullet ? -b.speed : b.speed) * dt;
         if (b.angle) b.x += b.angle * b.speed * dt;
-        if (!b.isPlayerBullet && player.hp > 0 && checkCollision(b, player)) {
+        if (!b.isPlayerBullet && player.hp > 0 && collisionUtil(b, player)) {
           player.hp -= 8; player.flicker = 12; shakeRef.current = 5;
           createExplosion(b.x, b.y, 6, '#fff');
           if (player.hp <= 0) { createExplosion(player.x+player.width/2, player.y+player.height/2, 80, '#0ff'); player.flicker = -1; }
@@ -207,7 +246,7 @@ const GameCanvas: React.FC = () => {
           }
         }
         bulletsRef.current.filter(b => b.isPlayerBullet).forEach(b => {
-          if (checkCollision(b, boss)) {
+          if (collisionUtil(b, boss)) {
             boss.hp -= b.damage; boss.flicker = 3; createExplosion(b.x, b.y, 4, '#fff'); b.y = -100;
             if (boss.hp <= 0) { setScore(prev => prev+10000); createExplosion(boss.x+boss.width/2, boss.y+boss.height/2, 120, '#ff0'); setGameState('WON'); bossRef.current = null; }
           }
@@ -222,14 +261,14 @@ const GameCanvas: React.FC = () => {
           bulletsRef.current.push({ x: e.x+e.width/2-4, y: e.y+e.height, width: 7, height: 7, speed: 4.5, damage: 5, isPlayerBullet: false, angle: Math.atan2(dy, dx)-Math.PI/2 });
           e.lastShotTime = timestamp;
         }
-        if (player.hp > 0 && checkCollision(player, e)) {
+        if (player.hp > 0 && collisionUtil(player, e)) {
           player.hp -= 20; player.flicker = 18; shakeRef.current = 10;
           createExplosion(e.x+e.width/2, e.y+e.height/2, 20, '#f50');
           if (player.hp <= 0) { createExplosion(player.x+player.width/2, player.y+player.height/2, 80, '#0ff'); player.flicker = -1; }
           return false;
         }
         bulletsRef.current.filter(b => b.isPlayerBullet).forEach(b => {
-          if (checkCollision(b, e)) {
+          if (collisionUtil(b, e)) {
             e.hp -= b.damage; e.flicker = 3; b.y = -100;
             if (e.hp <= 0) { setScore(prev => prev+100); addFloatingText(e.x, e.y, '+100', '#0ff'); createExplosion(e.x+e.width/2, e.y+e.height/2, 18, '#f50'); if (Math.random() < 0.22) spawnItem(e.x, e.y); e.y = CANVAS_HEIGHT+250; }
           }
@@ -239,7 +278,7 @@ const GameCanvas: React.FC = () => {
 
       itemsRef.current = itemsRef.current.filter(item => {
         item.y += item.speed * dt;
-        if (player.hp > 0 && checkCollision(player, item)) {
+        if (player.hp > 0 && collisionUtil(player, item)) {
           if (item.type === 'power') { player.power = Math.min(player.power+1, 3); addFloatingText(item.x, item.y, 'POWER UP!', '#f0f'); }
           if (item.type === 'health') { player.hp = Math.min(player.hp+30, player.maxHp); addFloatingText(item.x, item.y, '+30 HP', '#0f0'); }
           if (item.type === 'bomb') { player.bombs++; addFloatingText(item.x, item.y, '+1 BOMB', '#f80'); }
@@ -252,11 +291,6 @@ const GameCanvas: React.FC = () => {
     const spawnItem = (x: number, y: number) => {
       const types: ('power' | 'health' | 'bomb')[] = ['power', 'health', 'bomb'];
       itemsRef.current.push({ x, y, width: 22, height: 22, speed: 1.3, type: types[Math.floor(Math.random()*3)] });
-    };
-
-    const checkCollision = (rect1: any, rect2: any) => {
-      const margin = 10;
-      return rect1.x+margin < rect2.x+rect2.width-margin && rect1.x+rect1.width-margin > rect2.x+margin && rect1.y+margin < rect2.y+rect2.height-margin && rect1.y+rect1.height-margin > rect2.y+margin;
     };
 
     const draw = (timestamp: number) => {
@@ -344,7 +378,7 @@ const GameCanvas: React.FC = () => {
       // Boss Distance Bar
       if (!isBossActive && gameState === 'PLAYING') {
         ctx.fillStyle = '#222'; ctx.fillRect(130, 15, 220, 6); ctx.fillStyle = '#333';
-        const prog = Math.min(1, score / 5000); ctx.fillStyle = '#0f0'; ctx.fillRect(130, 15, 220 * prog, 6);
+        const prog = Math.min(1, score / BOSS_SCORE_THRESHOLD); ctx.fillStyle = '#0f0'; ctx.fillRect(130, 15, 220 * prog, 6);
         ctx.fillStyle = '#fff'; ctx.font = '10px Arial'; ctx.fillText('BOSS DISTANCE', 130, 12);
       } else if (isBossActive && bossRef.current) {
         ctx.fillStyle = '#f00'; ctx.font = 'bold 12px Arial'; ctx.fillText('BOSS HP', 130, 12);
@@ -370,7 +404,10 @@ const GameCanvas: React.FC = () => {
         ctx.shadowBlur = 20; ctx.shadowColor = gameWon ? '#0f0' : '#f00'; ctx.fillStyle = gameWon ? '#0f0' : '#f00';
         ctx.font = 'bold 45px Arial'; ctx.fillText(gameWon ? 'MISSION COMPLETE' : 'MISSION FAILED', CANVAS_WIDTH/2, CANVAS_HEIGHT/2);
         ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '22px Arial'; ctx.fillText(`FINAL SCORE: ${score.toString().padStart(6, '0')}`, CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 60);
-        ctx.font = '16px monospace'; ctx.fillStyle = '#aaa'; ctx.fillText('PRESS F5 TO RESTART', CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 100);
+        ctx.font = 'bold 18px monospace'; ctx.fillStyle = '#fff';
+        if (Math.floor(timestamp / 500) % 2 === 0) {
+          ctx.fillText('PRESS ANY KEY TO RESTART', CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 100);
+        }
       }
     };
 
@@ -378,6 +415,15 @@ const GameCanvas: React.FC = () => {
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
   }, [score, gameState, isBossActive]);
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#050505', backgroundImage: 'radial-gradient(circle, #111 0%, #000 100%)' }}>
+      <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={{ border: '4px solid #222', borderRadius: '8px', boxShadow: '0 0 60px rgba(0,255,255,0.15)' }} />
+    </div>
+  );
+};
+
+export default GameCanvas;
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#050505', backgroundImage: 'radial-gradient(circle, #111 0%, #000 100%)' }}>
